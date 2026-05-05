@@ -238,6 +238,7 @@ const dateHint = document.querySelector("#dateHint");
 const dayTabs = document.querySelector("#dayTabs");
 const hospitalSelect = document.querySelector("#hospitalSelect");
 const facilityHint = document.querySelector("#facilityHint");
+const bottomNavButtons = document.querySelectorAll(".bottom-nav button");
 
 let currentItinerary = [];
 let selectedDayIndex = 0;
@@ -267,6 +268,7 @@ hospitalSelect.addEventListener("change", () => {
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   renderRecommendation(getOptions());
+  switchView("trips");
 });
 
 document.querySelector("#area").addEventListener("change", async () => {
@@ -287,6 +289,12 @@ document.querySelector("#shareButton").addEventListener("click", async () => {
   setTimeout(() => {
     document.querySelector("#shareButton").textContent = "공유";
   }, 1400);
+});
+
+bottomNavButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    switchView(button.dataset.view);
+  });
 });
 
 function setDefaultDates() {
@@ -339,6 +347,7 @@ function renderRecommendation(options) {
   document.querySelector("#tripSummary").textContent = `${formatDate(options.tripStart)}-${formatDate(options.tripEnd)} / 시술 ${options.procedureDayIndex}일차`;
   document.querySelector("#itinerarySummary").textContent = `${currentItinerary.length}일 코스`;
   document.querySelector("#selectedDaySummary").textContent = `Day ${selectedDay.dayIndex} · ${recoveryLabel(selectedDay.recoveryDay)}`;
+  document.querySelector("#selectedDaySummaryTrip").textContent = `Day ${selectedDay.dayIndex} · ${recoveryLabel(selectedDay.recoveryDay)}`;
   document.querySelector("#safetyScore").textContent = `${safetyScore(selectedDay.options, selectedDay.places)}점`;
   document.querySelector("#routeMeta").textContent = routeMeta(selectedDay.options, selectedDay.places);
   dateHint.textContent = `${tripLength(options)}일 여행 전체를 생성했습니다. Day 탭을 선택하면 날짜별 동선과 회복 단계를 볼 수 있습니다.`;
@@ -349,6 +358,15 @@ function renderRecommendation(options) {
   renderReasons(selectedDay.options, selectedDay.places);
   renderMedicalFacilityInfo(options.area, hospital);
   renderCareGuide(selectedDay.options);
+}
+
+function switchView(viewName) {
+  document.querySelectorAll(".app-view").forEach((view) => {
+    view.classList.toggle("active", view.id === `view-${viewName}`);
+  });
+  bottomNavButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === viewName);
+  });
 }
 
 function buildItinerary(baseOptions, hospital) {
