@@ -1,0 +1,12 @@
+.env
+
+# Generated data files; keep the data documentation tracked.
+data/*
+!data/README.md
+
+# Runtime logs
+*.log
+
+# Python caches
+__pycache__/
+*.py[cod]

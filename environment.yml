@@ -1,0 +1,6 @@
+name: afterglow-data-clean
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
