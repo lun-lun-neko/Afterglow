@@ -4,38 +4,52 @@ const path = require("path");
 loadEnv(path.resolve(process.cwd(), ".env"));
 
 const API_KEY = process.env.KAKAO_REST_API_KEY;
-const OUTPUT_PATH = path.resolve(
-  process.cwd(),
-  process.env.KAKAO_OUTPUT || "data/gangnam_kakao_places.csv",
-);
+const DEFAULT_DATA_DIR = path.resolve(process.cwd(), "data");
 
-// Covers Gangnam-gu. Results are filtered by their returned Gangnam-gu address.
-const GANGNAM_BOUNDS = {
-  west: 127.008,
-  south: 37.456,
-  east: 127.125,
-  north: 37.536,
+const DISTRICTS = {
+  gangnam: {
+    nameKo: "강남구",
+    addressPrefix: "서울 강남구 ",
+    output: "gangnam_kakao_places.csv",
+    bounds: { west: 127.008, south: 37.456, east: 127.125, north: 37.536 },
+  },
+  seocho: {
+    nameKo: "서초구",
+    addressPrefix: "서울 서초구 ",
+    output: "seocho_kakao_places.csv",
+    bounds: { west: 126.975, south: 37.425, east: 127.095, north: 37.525 },
+  },
 };
+
+const SKIN_TREATMENT_KEYWORDS = [
+  "피부과",
+  "피부시술",
+  "피부클리닉",
+  "보톡스",
+  "필러",
+  "리프팅",
+  "피부레이저",
+  "여드름",
+  "제모",
+  "써마지",
+  "울쎄라",
+];
+
+const DRUGSTORE_KEYWORDS = [
+  "드럭스토어",
+  "올리브영",
+  "랄라블라",
+  "롭스",
+  "왓슨스",
+  "LOHBs",
+  "Watsons",
+];
 
 const SEARCHES = [
   { type: "category", value: "AT4", label: "tourist_attraction" },
-  { type: "category", value: "CE7", label: "cafe" },
   { type: "category", value: "CT1", label: "cultural_facility" },
-  { type: "category", value: "MT1", label: "large_mart" },
   { type: "category", value: "HP8", label: "hospital" },
-  ...[
-    "피부과",
-    "피부시술",
-    "피부클리닉",
-    "보톡스",
-    "필러",
-    "리프팅",
-    "피부레이저",
-    "여드름",
-    "제모",
-    "써마지",
-    "울쎄라",
-  ].map((keyword) => ({
+  ...SKIN_TREATMENT_KEYWORDS.map((keyword) => ({
     type: "keyword",
     value: keyword,
     label: "skin_treatment_hospital",
@@ -48,61 +62,35 @@ const SEARCHES = [
     label: "department_store",
     matches: (place) => place.category_name.includes("백화점"),
   },
-  {
+  ...DRUGSTORE_KEYWORDS.map((keyword) => ({
     type: "keyword",
-    value: "화장품",
-    label: "beauty_store",
-    matches: isBeautyStore,
-  },
-  {
-    type: "keyword",
-    value: "올리브영",
-    label: "beauty_store",
-    matches: isBeautyStore,
-  },
-  {
-    type: "keyword",
-    value: "랄라블라",
-    label: "beauty_store",
-    matches: isBeautyStore,
-  },
-  {
-    type: "keyword",
-    value: "시코르",
-    label: "beauty_store",
-    matches: isBeautyStore,
-  },
-  {
-    type: "keyword",
-    value: "세포라",
-    label: "beauty_store",
-    matches: isBeautyStore,
-  },
+    value: keyword,
+    label: "drugstore",
+    signal: keyword,
+    matches: isDrugstore,
+  })),
 ];
 
 const MAX_DEPTH = 9;
 const PAGE_SIZE = 15;
 const REQUEST_DELAY_MS = 80;
 const RETRY_COUNT = 5;
-const places = new Map();
-let requestCount = 0;
+
+if (!API_KEY) {
+  console.error("KAKAO_REST_API_KEY is required. Add it to .env or set the environment variable.");
+  process.exit(1);
+}
 
 function loadEnv(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return;
-  }
+  if (!fs.existsSync(filePath)) return;
 
   const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
+    if (!trimmed || trimmed.startsWith("#")) continue;
 
     const separator = trimmed.indexOf("=");
-    if (separator < 1) {
-      continue;
-    }
+    if (separator < 1) continue;
 
     const name = trimmed.slice(0, separator).trim();
     let value = trimmed.slice(separator + 1).trim();
@@ -112,18 +100,34 @@ function loadEnv(filePath) {
     ) {
       value = value.slice(1, -1);
     }
-
-    if (process.env[name] === undefined) {
-      process.env[name] = value;
-    }
+    if (process.env[name] === undefined) process.env[name] = value;
   }
 }
 
-if (!API_KEY) {
-  console.error(
-    "KAKAO_REST_API_KEY is required. Add it to .env or set the environment variable.",
-  );
-  process.exit(1);
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const options = { districts: Object.keys(DISTRICTS), dataDir: DEFAULT_DATA_DIR };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--district") {
+      const district = args[index + 1];
+      if (!DISTRICTS[district]) {
+        throw new Error(`Unknown district: ${district}. Use gangnam or seocho.`);
+      }
+      options.districts = [district];
+      index += 1;
+    } else if (arg === "--all") {
+      options.districts = Object.keys(DISTRICTS);
+    } else if (arg === "--data-dir") {
+      options.dataDir = path.resolve(process.cwd(), args[index + 1]);
+      index += 1;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+
+  return options;
 }
 
 function sleep(ms) {
@@ -145,25 +149,18 @@ function splitBounds(bounds) {
   ];
 }
 
-function isBeautyStore(place) {
-  const category = place.category_name;
-  const name = place.place_name;
-  return (
-    /화장품|향수|미용재료|네일아트용품/.test(category) ||
-    /올리브영|랄라블라|시코르|세포라/.test(name)
-  );
-}
-
 function isSkinTreatmentHospital(place) {
-  const allowedCategories = [
-    "피부과",
-    "성형외과",
-    "일반의원",
-    "가정의학과",
-  ];
+  const allowedCategories = ["피부과", "성형외과", "일반의원", "가정의학과"];
   return (
     place.category_name.startsWith("의료,건강 > 병원") &&
     allowedCategories.some((category) => place.category_name.includes(category))
+  );
+}
+
+function isDrugstore(place) {
+  return (
+    place.category_name.includes("드럭스토어") ||
+    /올리브영|랄라블라|롭스|왓슨스|LOHBs|Watsons/i.test(place.place_name)
   );
 }
 
@@ -185,14 +182,8 @@ async function requestPlaces(search, bounds, page = 1) {
 
   for (let attempt = 1; attempt <= RETRY_COUNT; attempt += 1) {
     await sleep(REQUEST_DELAY_MS);
-    requestCount += 1;
-    const response = await fetch(url, {
-      headers: { Authorization: `KakaoAK ${API_KEY}` },
-    });
-
-    if (response.ok) {
-      return response.json();
-    }
+    const response = await fetch(url, { headers: { Authorization: `KakaoAK ${API_KEY}` } });
+    if (response.ok) return response.json();
 
     const body = await response.text();
     if (response.status !== 429 && response.status < 500) {
@@ -204,24 +195,20 @@ async function requestPlaces(search, bounds, page = 1) {
   throw new Error(`Kakao API request failed after ${RETRY_COUNT} attempts`);
 }
 
-function isGangnam(place) {
+function isInDistrict(place, district) {
   return (
-    place.address_name.startsWith("서울 강남구 ") ||
-    place.road_address_name.startsWith("서울 강남구 ")
+    place.address_name.startsWith(district.addressPrefix) ||
+    place.road_address_name.startsWith(district.addressPrefix)
   );
 }
 
-function addPlace(place, search) {
-  if (!isGangnam(place) || (search.matches && !search.matches(place))) {
-    return;
-  }
+function addPlace(places, district, place, search) {
+  if (!isInDistrict(place, district) || (search.matches && !search.matches(place))) return;
 
   const existing = places.get(place.id);
   if (existing) {
     existing.collection_types.add(search.label);
-    if (search.signal) {
-      existing.search_signals.add(search.signal);
-    }
+    if (search.signal) existing.search_signals.add(search.signal);
     return;
   }
 
@@ -232,27 +219,28 @@ function addPlace(place, search) {
   });
 }
 
-async function collectBounds(search, bounds, depth = 0) {
+async function collectBounds(places, district, search, bounds, stats, depth = 0) {
   const firstPage = await requestPlaces(search, bounds, 1);
+  stats.requestCount += 1;
 
-  // Kakao exposes at most 45 places per search. Split dense areas to avoid loss.
   if (firstPage.meta.pageable_count >= 45 && depth < MAX_DEPTH) {
     for (const child of splitBounds(bounds)) {
-      await collectBounds(search, child, depth + 1);
+      await collectBounds(places, district, search, child, stats, depth + 1);
     }
     return;
   }
 
-  firstPage.documents.forEach((place) => addPlace(place, search));
+  firstPage.documents.forEach((place) => addPlace(places, district, place, search));
   const pageCount = Math.ceil(firstPage.meta.pageable_count / PAGE_SIZE);
   for (let page = 2; page <= pageCount; page += 1) {
     const result = await requestPlaces(search, bounds, page);
-    result.documents.forEach((place) => addPlace(place, search));
+    stats.requestCount += 1;
+    result.documents.forEach((place) => addPlace(places, district, place, search));
   }
 
   if (firstPage.meta.pageable_count >= 45) {
     console.warn(
-      `Warning: reached the 45-result limit at max depth for ${search.label}: ${toRect(bounds)}`,
+      `Warning: reached the 45-result limit at max depth for ${district.nameKo} ${search.label}: ${toRect(bounds)}`,
     );
   }
 }
@@ -261,7 +249,7 @@ function csvCell(value) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
 
-function writeCsv() {
+function writeCsv(outputPath, places) {
   const columns = [
     "placeName",
     "kakaoPlaceId",
@@ -294,22 +282,36 @@ function writeCsv() {
       place.y,
       place.place_url,
     ]);
+
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   const csv = [columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-  fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-  fs.writeFileSync(OUTPUT_PATH, `\uFEFF${csv}`, "utf8");
+  fs.writeFileSync(outputPath, `\uFEFF${csv}`, "utf8");
+}
+
+async function collectDistrict(key, dataDir) {
+  const district = DISTRICTS[key];
+  const places = new Map();
+  const stats = { requestCount: 0 };
+
+  console.log(`Collecting ${district.nameKo}...`);
+  for (const search of SEARCHES) {
+    const before = places.size;
+    console.log(`  ${search.label}: ${search.value}`);
+    await collectBounds(places, district, search, district.bounds, stats);
+    console.log(`    added ${places.size - before}, total unique ${places.size}`);
+  }
+
+  const outputPath = path.join(dataDir, district.output);
+  writeCsv(outputPath, places);
+  console.log(`Created ${outputPath}`);
+  console.log(`Places: ${places.size}, API requests: ${stats.requestCount}`);
 }
 
 async function main() {
-  for (const search of SEARCHES) {
-    const before = places.size;
-    console.log(`Collecting ${search.label}...`);
-    await collectBounds(search, GANGNAM_BOUNDS);
-    console.log(`  added ${places.size - before}, total unique ${places.size}`);
+  const options = parseArgs();
+  for (const district of options.districts) {
+    await collectDistrict(district, options.dataDir);
   }
-
-  writeCsv();
-  console.log(`Created ${OUTPUT_PATH}`);
-  console.log(`Places: ${places.size}, API requests: ${requestCount}`);
 }
 
 main().catch((error) => {

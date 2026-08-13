@@ -10,3 +10,7 @@ data/*
 # Python caches
 __pycache__/
 *.py[cod]
+.venv/
+
+# Generated ML artifacts
+models/*.joblib

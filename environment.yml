@@ -4,3 +4,11 @@ channels:
   - nodefaults
 dependencies:
   - python=3.12
+  - fastapi
+  - joblib
+  - lightgbm
+  - numpy
+  - pandas
+  - pydantic>=2
+  - scikit-learn
+  - uvicorn
