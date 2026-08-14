@@ -10,9 +10,9 @@ from recommendation.config import (
     MAX_SEARCH_RADIUS_KM,
 )
 from recommendation.distance_service import haversine_km
-from recommendation.models import Anchor, Place
+from recommendation.models import Anchor, Place, TreatmentContext
 from recommendation.place_score import calculate_place_score
-from recommendation.treatment_filter import FilterStatus, treatment_filter
+from recommendation.treatment_filter import FilterStatus, evaluate_treatments
 
 
 def _repair_legacy_text(value: object) -> str:
@@ -95,8 +95,7 @@ class CandidateService:
         self,
         *,
         anchor: Anchor,
-        treatment: str,
-        days_after: int,
+        treatments: list[TreatmentContext],
         user_purpose: str,
         user_walk_preference: int,
         limit: int,
@@ -108,7 +107,9 @@ class CandidateService:
             )
             if distance > MAX_SEARCH_RADIUS_KM:
                 continue
-            status, risk_signals = treatment_filter(treatment, place, days_after)
+            status, risk_signals, treatment_evaluations = evaluate_treatments(
+                treatments, place
+            )
             if status is FilterStatus.BLOCK:
                 continue
             scores = calculate_place_score(
@@ -127,6 +128,7 @@ class CandidateService:
                     "distance_from_anchor_km": round(distance, 3),
                     "filter_status": status.value,
                     "risk_signals": risk_signals,
+                    "treatment_evaluations": treatment_evaluations,
                     "purpose_score": scores.purpose_score,
                     "treatment_score": scores.treatment_score,
                     "distance_score": scores.distance_score,

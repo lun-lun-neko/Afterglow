@@ -18,7 +18,7 @@ from recommendation.config import (
     REST_MIN_INDOOR_PLACES,
 )
 from recommendation.distance_service import haversine_km
-from recommendation.models import Anchor
+from recommendation.models import Anchor, TreatmentContext
 
 
 def _route_distance_score(total_distance_km: float) -> float:
@@ -70,16 +70,14 @@ class CourseService:
         self,
         *,
         anchor: Anchor,
-        treatment: str,
-        days_after: int,
+        treatments: list[TreatmentContext],
         user_purpose: str,
         user_walk_preference: int,
         top_n: int,
     ) -> list[dict]:
         all_candidates = self.candidate_service.recommend(
             anchor=anchor,
-            treatment=treatment,
-            days_after=days_after,
+            treatments=treatments,
             user_purpose=user_purpose,
             user_walk_preference=user_walk_preference,
             limit=10_000,

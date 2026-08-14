@@ -9,7 +9,7 @@ from recommendation.config import (
     RISK_OUTDOOR_EXPOSURE,
     TREATMENT_RISK_RULES,
 )
-from recommendation.models import Place
+from recommendation.models import Place, TreatmentContext
 
 
 class FilterStatus(StrEnum):
@@ -54,3 +54,33 @@ def treatment_filter(
     statuses = [_status_for_rule(treatment, signal, days_after) for signal in signals]
     final_status = max(statuses, key=STATUS_PRIORITY.get, default=FilterStatus.NORMAL)
     return final_status, signals
+
+
+def evaluate_treatments(
+    treatments: list[TreatmentContext], place: Place
+) -> tuple[FilterStatus, list[str], list[dict]]:
+    evaluations = []
+    all_signals: set[str] = set()
+    statuses = []
+    for context in treatments:
+        status, signals = treatment_filter(context.treatment, place, context.days_after)
+        matched_signals = [
+            signal
+            for signal in signals
+            if status is not FilterStatus.NORMAL
+            and _status_for_rule(context.treatment, signal, context.days_after) is status
+        ]
+        statuses.append(status)
+        all_signals.update(signals)
+        evaluations.append(
+            {
+                "treatment": context.treatment,
+                "days_after": context.days_after,
+                "status": status.value,
+                "matched_risk_signals": matched_signals,
+                "hospital_name": context.hospital_name,
+                "package_id": context.package_id,
+            }
+        )
+    final_status = max(statuses, key=STATUS_PRIORITY.get, default=FilterStatus.NORMAL)
+    return final_status, sorted(all_signals), evaluations

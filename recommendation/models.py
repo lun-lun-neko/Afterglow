@@ -20,3 +20,11 @@ class Place:
     walk_hard: int
     category_name: str = ""
     place_url: str = ""
+
+
+@dataclass(frozen=True)
+class TreatmentContext:
+    treatment: str
+    days_after: int
+    hospital_name: str | None = None
+    package_id: str | None = None

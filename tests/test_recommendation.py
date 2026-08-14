@@ -2,12 +2,16 @@ import unittest
 
 from recommendation.candidate_service import CandidateService
 from recommendation.course_service import CourseService
-from recommendation.models import Anchor, Place
+from recommendation.models import Anchor, Place, TreatmentContext
 from recommendation.place_score import calculate_place_score, walk_score
-from recommendation.treatment_filter import FilterStatus, treatment_filter
+from recommendation.treatment_filter import FilterStatus, evaluate_treatments, treatment_filter
 
 
 ANCHOR = Anchor("anchor", 37.5, 127.0)
+
+
+def treatment(name="피부관리", days_after=8):
+    return TreatmentContext(name, days_after)
 
 
 class MemoryRepository:
@@ -64,6 +68,17 @@ class TreatmentPolicyTests(unittest.TestCase):
         self.assertEqual(treatment_filter("리프팅", massage, 7)[0], FilterStatus.PENALTY)
         self.assertEqual(treatment_filter("리프팅", massage, 8)[0], FilterStatus.NORMAL)
 
+    def test_multiple_treatments_use_strongest_status(self):
+        outdoor = place(category="tourist_attraction", indoor=False)
+        status, _, evaluations = evaluate_treatments(
+            [treatment("제모", 2), treatment("피부레이저", 2)], outdoor
+        )
+        self.assertEqual(status, FilterStatus.BLOCK)
+        self.assertEqual(
+            {item["treatment"]: item["status"] for item in evaluations},
+            {"제모": "PENALTY", "피부레이저": "BLOCK"},
+        )
+
 
 class PlaceRecommendationTests(unittest.TestCase):
     def test_nearby_indoor_low_intensity_place_scores_high(self):
@@ -83,7 +98,7 @@ class PlaceRecommendationTests(unittest.TestCase):
         blocked = place(category="tourist_attraction", indoor=False, walk_hard=5)
         service = CandidateService(MemoryRepository([blocked]))
         result = service.recommend(
-            anchor=ANCHOR, treatment="피부레이저", days_after=2,
+            anchor=ANCHOR, treatments=[treatment("피부레이저", 2)],
             user_purpose="휴식", user_walk_preference=2, limit=20,
         )
         self.assertEqual(result, [])
@@ -91,7 +106,7 @@ class PlaceRecommendationTests(unittest.TestCase):
     def test_place_beyond_radius_is_removed(self):
         service = CandidateService(MemoryRepository([place(latitude=37.56)]))
         result = service.recommend(
-            anchor=ANCHOR, treatment="피부관리", days_after=8,
+            anchor=ANCHOR, treatments=[treatment()],
             user_purpose="휴식", user_walk_preference=2, limit=20,
         )
         self.assertEqual(result, [])
@@ -109,7 +124,7 @@ class CourseRecommendationTests(unittest.TestCase):
             place("D2", latitude=37.504, category="drugstore"),
         ]
         courses = self._service(places).recommend(
-            anchor=ANCHOR, treatment="피부관리", days_after=8,
+            anchor=ANCHOR, treatments=[treatment()],
             user_purpose="휴식", user_walk_preference=3, top_n=3,
         )
         self.assertTrue(courses)
@@ -125,7 +140,7 @@ class CourseRecommendationTests(unittest.TestCase):
             place("C", latitude=37.503, category="department_store"),
         ]
         course = self._service(places).recommend(
-            anchor=ANCHOR, treatment="피부관리", days_after=8,
+            anchor=ANCHOR, treatments=[treatment()],
             user_purpose="휴식", user_walk_preference=3, top_n=1,
         )[0]
         self.assertEqual([p["place_id"] for p in course["places"]], ["A", "B", "C"])
@@ -141,7 +156,7 @@ class CourseRecommendationTests(unittest.TestCase):
             place("B2", latitude=37.506, category="department_store"),
         ]
         courses = self._service(places).recommend(
-            anchor=ANCHOR, treatment="피부관리", days_after=8,
+            anchor=ANCHOR, treatments=[treatment()],
             user_purpose="휴식", user_walk_preference=3, top_n=3,
         )
         for index, first in enumerate(courses):

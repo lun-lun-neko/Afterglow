@@ -227,7 +227,76 @@ BLOCK > PENALTY > NORMAL
 "새 시술": {}
 ```
 
-## 9. 코스 구성 정책
+## 9. 여러 시술 처리
+
+기존 단일 시술 요청과 새로운 다중 시술 요청을 모두 지원한다.
+
+기존 형식:
+
+```json
+{
+  "treatment": "피부레이저",
+  "days_after": 3
+}
+```
+
+다중 시술에서 경과일을 직접 입력하는 형식:
+
+```json
+{
+  "treatments": [
+    {"treatment": "보톡스", "days_after": 2},
+    {"treatment": "피부레이저", "days_after": 0}
+  ]
+}
+```
+
+예약 시각으로 경과일을 자동 계산하는 형식:
+
+```json
+{
+  "recommendation_at": "2026-08-16T16:00:00+09:00",
+  "treatments": [
+    {
+      "treatment": "보톡스",
+      "scheduled_at": "2026-08-14T11:00:00+09:00",
+      "hospital_name": "A의원"
+    },
+    {
+      "treatment": "피부레이저",
+      "scheduled_at": "2026-08-16T14:00:00+09:00",
+      "hospital_name": "B의원"
+    },
+    {
+      "treatment": "제모",
+      "scheduled_at": "2026-08-17T10:00:00+09:00"
+    }
+  ]
+}
+```
+
+위 예시에서 실제 적용되는 시술은 보톡스 2일차와 피부레이저 당일이다. 추천 시점보다 미래인 제모는 아직 받지 않은 시술이므로 사후관리 필터에서 제외한다.
+
+처리 원칙:
+
+1. 이미 받은 모든 활성 시술을 장소마다 독립적으로 평가한다.
+2. 하나라도 `BLOCK`이면 해당 장소를 제거한다.
+3. `BLOCK`은 없고 하나라도 `PENALTY`이면 최종 상태는 `PENALTY`다.
+4. 모든 시술이 `NORMAL`일 때만 최종 상태가 `NORMAL`이다.
+5. `PENALTY`가 여러 개여도 점수를 중복 차감하지 않고 시술 점수 50을 한 번 적용한다.
+6. 같은 패키지의 시술은 선택적인 `package_id`로 묶을 수 있지만 의료 판정은 각각 수행한다.
+7. 기존 `treatment/days_after`와 새 `treatments` 형식을 한 요청에 함께 보낼 수 없다.
+8. `scheduled_at`을 사용하면 `recommendation_at`도 필요하고 모든 시각에 시간대 오프셋이 있어야 한다.
+
+응답의 `active_treatments`에는 실제 필터에 적용된 시술만 포함된다. 각 장소의 `treatment_evaluations`에는 시술별 상태와 해당 상태를 유발한 위험 신호가 포함된다.
+
+```text
+medical_compatibility_checked = false
+```
+
+이 값은 시술 조합이나 시술 간격 자체가 의학적으로 가능한지 추천 엔진이 검증하지 않았다는 뜻이다. 예약 병원에서 확정한 시술 일정을 입력으로 사용하는 것을 전제로 한다.
+
+## 10. 코스 구성 정책
 
 `CourseService`는 Place Score가 계산된 장소를 사용해 코스를 만든다.
 
@@ -249,7 +318,7 @@ Anchor로 돌아오는 거리는 현재 계산하지 않는다.
 
 후보 장소를 전체 점수순으로만 자르면 특정 카테고리가 후보를 독점할 수 있다. 이를 방지하기 위해 카테고리별 상위 12개를 조합 후보로 사용한다.
 
-## 10. 목적별 코스 필수 조건
+## 11. 목적별 코스 필수 조건
 
 `PURPOSE_REQUIRED_CATEGORIES`와 `REST_MIN_INDOOR_PLACES`가 담당한다.
 
@@ -261,7 +330,7 @@ Anchor로 돌아오는 거리는 현재 계산하지 않는다.
 
 조건을 만족하지 않는 장소 조합은 Course Score를 계산하지 않고 제외한다.
 
-## 11. Course Score
+## 12. Course Score
 
 ```text
 Course Score
@@ -307,7 +376,7 @@ Course Score
 - 문화관광·뷰티쇼핑: 선호 카테고리가 2개 이상이면 100점, 1개이면 75점이다.
 - 휴식: 실내 장소 3개이면 100점, 2개이면 80점이다. 1개 이하는 코스에서 제외한다.
 
-## 12. Top 코스 다양성
+## 13. Top 코스 다양성
 
 Course Score가 높은 순서대로 선택하되 이미 선택된 코스와 공통 장소가 설정값을 초과하면 건너뛴다.
 
@@ -319,7 +388,7 @@ Course Score가 높은 순서대로 선택하되 이미 선택된 코스와 공�
 
 따라서 장소 2개 이상이 같은 유사 코스가 Top 결과를 차지하지 못한다.
 
-## 13. 데이터 파일
+## 14. 데이터 파일
 
 Anchor 파일 `ANCHOR_DATA_FILE`:
 
@@ -337,7 +406,7 @@ gangnam_seocho_places_drugstore_attraction_department_culture.csv
 
 현재 이 파일 하나만 사용한다. `isNa=1`인 행은 로딩 시 제외한다. `isIndoor` 또는 `walkHard`가 비어 있거나 올바른 숫자가 아닌 장소도 제외한다.
 
-## 14. 설정 변경 시 점검사항
+## 15. 설정 변경 시 점검사항
 
 1. Place Score 및 Course Score 가중치 합계가 각각 1.0인지 확인한다.
 2. 거리 점수 구간은 상한이 작은 순서대로 배치한다.
@@ -352,7 +421,7 @@ gangnam_seocho_places_drugstore_attraction_department_culture.csv
 python -m unittest discover -s tests -v
 ```
 
-## 15. 관련 코드
+## 16. 관련 코드
 
 - 설정값: [`config.py`](./config.py)
 - 의료 위험 신호 및 기간 판정: [`treatment_filter.py`](./treatment_filter.py)
